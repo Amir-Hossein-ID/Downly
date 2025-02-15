@@ -1,13 +1,21 @@
-import requests
 import aiohttp
 import asyncio
 
 user_agent = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0'}
 
+def human_readable_size(size_in_bytes):
+    units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+    unit_index = 0
+    while size_in_bytes >= 1024 and unit_index < len(units) - 1:
+        size_in_bytes /= 1024
+        unit_index += 1
+    
+    return f"{size_in_bytes:.2f} {units[unit_index]}"
+
 async def download_part(session: aiohttp.ClientSession, semaphore, url, start, end, path):
     async with semaphore:
         r = await session.get(url, headers={'Range': f'bytes={start}-{end}'})
-        print(f'downloaded from {start} to {end}')
+        print(f'downloaded from {human_readable_size(start)} to {human_readable_size(end)} of size {human_readable_size(end - start)}')
         with open(path, 'r+b') as f:
             f.seek(start)
             f.write(await r.read())
