@@ -31,11 +31,8 @@ class Download:
         self.path = path
         self.chunk_size = chunk_size
         self.n_connections = n_connections
-        self.status: DownloadStatus = DownloadStatus.init
+        self.status = DownloadStatus.init
         self._head_req = None
-    
-    def _update(session, context, params):
-        pass
     
     async def _do_head_req(self):
         if self.session != None and not self.session.closed:
@@ -84,14 +81,14 @@ class Download:
                     if progress_bar is not None: progress_bar.update(len(data))
             self.status = DownloadStatus.finished
     
-    async def download(self):
+    async def download(self, progress_bar=True):
         if not self._head_req:
             await self._do_head_req()
         self.status = DownloadStatus.running
         open(self.path, 'w').close()
         file_size = await self.get_size()
 
-        progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True)
+        progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True) if progress_bar else None
         if file_size == None:
            await self._single_download(progress_bar)
         else:
