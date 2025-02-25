@@ -1,7 +1,10 @@
-import asyncio
 import aiohttp
-import enum
+import aiofiles
 from tqdm.asyncio import tqdm
+
+import asyncio
+import enum
+
 
 
 def human_readable_size(size_in_bytes):
@@ -54,12 +57,12 @@ class Download:
     async def download_part(self, semaphore, start, end, progress_bar):
         async with semaphore:
             r = await self.session.get(self.url, headers={'Range': f'bytes={start}-{end}'})
-            with open(self.path, 'r+b') as f:
-                f.seek(start)
+            async with aiofiles.open(self.path, 'r+b') as f:
+                await f.seek(start)
                 async for data, _ in r.content.iter_chunks():
-                    f.write(data)
+                    await f.write(data)
                     if progress_bar is not None: progress_bar.update(len(data))
-                return f.tell() - start
+                return await f.tell() - start
     
     async def _multi_download(self, progress_bar=None):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
@@ -75,9 +78,9 @@ class Download:
     async def _single_download(self, progress_bar=None):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
             r = await self.session.get(self.url)
-            with open(self.path, 'r+b') as f:
+            async with aiofiles.open(self.path, 'r+b') as f:
                 async for data, _ in r.content.iter_chunks():
-                    f.write(data)
+                    await f.write(data)
                     if progress_bar is not None: progress_bar.update(len(data))
             self.status = DownloadStatus.finished
     
