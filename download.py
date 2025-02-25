@@ -61,9 +61,10 @@ class Download:
                 f.seek(start)
                 async for data, _ in r.content.iter_chunks():
                     f.write(data)
-                    if progress_bar: progress_bar.update(len(data))
+                    if progress_bar is not None: progress_bar.update(len(data))
+                return f.tell() - start
     
-    async def _multi_download(self, progress_bar):
+    async def _multi_download(self, progress_bar=None):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
             semaphore = asyncio.Semaphore(self.n_connections)
             tasks = [
@@ -72,6 +73,16 @@ class Download:
             ]
 
             await asyncio.gather(*tasks)
+            self.status = DownloadStatus.finished
+    
+    async def _single_download(self, progress_bar=None):
+        async with aiohttp.ClientSession(headers=user_agent) as self.session:
+            r = await self.session.get(self.url)
+            with open(self.path, 'r+b') as f:
+                async for data, _ in r.content.iter_chunks():
+                    f.write(data)
+                    if progress_bar is not None: progress_bar.update(len(data))
+            self.status = DownloadStatus.finished
     
     async def download(self):
         if not self._head_req:
@@ -79,27 +90,21 @@ class Download:
         self.status = DownloadStatus.running
         open(self.path, 'w').close()
         file_size = await self.get_size()
-        if file_size == None:
-            pass #TODO
+
         progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True)
-        self.file_size = file_size
-        if self._head_req.headers.get('Accept-Ranges', 'none') == 'none':
-            await self._single_download(progress_bar)
-            return
-        await self._multi_download(progress_bar)
-
-    async def _single_download(self, progress_bar=None):
-        async with aiohttp.ClientSession(headers=user_agent) as self.session:
-            r = await self.session.get(self.url)
-            with open(self.path, 'r+b') as f:
-                async for data, _ in r.content.iter_chunks():
-                    f.write(data)
-                    if progress_bar: progress_bar.update(len(data))
-
+        if file_size == None:
+           await self._single_download(progress_bar)
+        else:
+            self.file_size = file_size
+            if self._head_req.headers.get('Accept-Ranges', 'none') == 'none':
+                await self._single_download(progress_bar)
+            else:
+                await self._multi_download(progress_bar)
 
 
 async def main():
     url = 'https://dl3.soft98.ir/win/AAct.4.3.1.rar?1739730472'
+    url = 'https://github.com/Amir-Hossein-ID/Advent-of-Code/archive/refs/heads/master.zip'
     d = Download(url, 's.rar')
     await d.download()
 
