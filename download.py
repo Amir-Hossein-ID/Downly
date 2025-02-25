@@ -84,7 +84,10 @@ class Download:
                     if progress_bar is not None: progress_bar.update(len(data))
             self.status = DownloadStatus.finished
     
-    async def download(self, progress_bar=True):
+    async def download(self, block=True, progress_bar=True):
+        if not block:
+            return asyncio.create_task(self.download(progress_bar))
+
         if not self._head_req:
             await self._do_head_req()
         self.status = DownloadStatus.running
@@ -101,12 +104,13 @@ class Download:
             else:
                 await self._multi_download(progress_bar)
 
-
 async def main():
     url = 'https://dl3.soft98.ir/win/AAct.4.3.1.rar?1739730472'
     url = 'https://github.com/Amir-Hossein-ID/Advent-of-Code/archive/refs/heads/master.zip'
+    # url = 'https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-s390x.sh'
     d = Download(url, 's.rar')
-    await d.download()
+    download = await d.download(block=False)
+    await download
 
 if __name__ == '__main__':
     asyncio.run(main())
