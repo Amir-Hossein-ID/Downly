@@ -72,17 +72,24 @@ class Download:
             async with aiofiles.open(self.path, 'r+b') as f:
                 await f.seek(part[0])
                 async for data, _ in r.content.iter_chunks():
-                    if self.status == DownloadStatus.canceled or self.status == DownloadStatus.paused:
-                        return -1
                     await f.write(data)
                     if self._progress_bar is not None: self._progress_bar.update(len(data))
+                    if self.status == DownloadStatus.canceled or self.status == DownloadStatus.paused:
+                        await self._update_parts((part[0], await f.tell()))
+                        return -1
                 await self._update_parts(part)
     
     async def _update_parts(self, downloaded_part):
-        self._parts.remove(downloaded_part)
-        if self._parts:
-            async with aiofiles.open(self.path + '.pydl', 'wb') as f:
-                await f.write(pickle.dumps(self._parts))
+        try:
+            self._parts.remove(downloaded_part)
+        except ValueError:
+            for i in range(len(self._parts)):
+                if self._parts[i][0] == downloaded_part[0]:
+                    self._parts[i] = (downloaded_part[1], self._parts[i][1])
+                    break
+
+        async with aiofiles.open(self.path + '.pydl', 'wb') as f:
+            await f.write(pickle.dumps(self._parts))
     
     async def _remaining_parts(self):
         size = await self.get_size()
