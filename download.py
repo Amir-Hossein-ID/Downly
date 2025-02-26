@@ -25,6 +25,7 @@ class DownloadStatus(enum.IntEnum):
     running = 2
     paused = 3
     finished = 4
+    canceled = 5
     error = -1
 
 
@@ -38,6 +39,7 @@ class Download:
         self.status = DownloadStatus.init
         self._head_req = None
         self._semaphore = None
+        self._progress_bar = None
     
     async def _do_head_req(self):
         if self.session != None and not self.session.closed:
@@ -62,14 +64,18 @@ class Download:
         return (await self.get_size()) != None and\
               self._head_req.headers.get('Accept-Ranges', 'none') != 'none'
     
-    async def _download_part(self, part, progress_bar):
+    async def _download_part(self, part):
         async with self._semaphore:
+            if self.status == DownloadStatus.canceled or self.status == DownloadStatus.paused:
+                return -1
             r = await self.session.get(self.url, headers={'Range': f'bytes={part[0]}-{part[1]}'})
             async with aiofiles.open(self.path, 'r+b') as f:
                 await f.seek(part[0])
                 async for data, _ in r.content.iter_chunks():
+                    if self.status == DownloadStatus.canceled or self.status == DownloadStatus.paused:
+                        return -1
                     await f.write(data)
-                    if progress_bar is not None: progress_bar.update(len(data))
+                    if self._progress_bar is not None: self._progress_bar.update(len(data))
                 await self._update_parts(part)
     
     async def _update_parts(self, downloaded_part):
@@ -77,73 +83,117 @@ class Download:
         if self._parts:
             async with aiofiles.open(self.path + '.pydl', 'wb') as f:
                 await f.write(pickle.dumps(self._parts))
-        else:
-            await aios.remove(self.path + '.pydl')
     
     async def _remaining_parts(self):
         size = await self.get_size()
         if await aios.path.isfile(self.path + '.pydl'):
             async with aiofiles.open(self.path + '.pydl', 'rb') as f:
                 data = pickle.loads(await f.read())
-                return data, size
+                return data
 
         data = [(where, where + self.chunk_size) for where in range(0, await self.get_size(), self.chunk_size)]
         data[-1] = (data[-1][0], size)
 
         async with aiofiles.open(self.path + '.pydl', 'wb') as f:
             await f.write(pickle.dumps(data))
-        return data, size
+        return data
     
-    async def _multi_download(self, progress_bar=None):
+    async def _multi_download(self):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
             self._semaphore = asyncio.Semaphore(self.n_connections)
-            self._parts, size = await self._remaining_parts()
-            if progress_bar is not None:
-                a = size - sum(i[1]-i[0] for i in self._parts)
-                progress_bar.update(size - sum(i[1]-i[0] for i in self._parts))
+            self._parts = await self._remaining_parts()
+            if self._progress_bar is not None:
+                new_value = await self.get_size() - sum(i[1]-i[0] for i in self._parts)
+                self._progress_bar.reset()
+                self._progress_bar.update(new_value)
 
             tasks = [
-                self._download_part(part, progress_bar)
+                self._download_part(part)
                 for part in self._parts
             ]
 
             await asyncio.gather(*tasks)
-            self.status = DownloadStatus.finished
     
-    async def _single_download(self, progress_bar=None):
+    async def _single_download(self):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
             r = await self.session.get(self.url)
             async with aiofiles.open(self.path, 'r+b') as f:
                 async for data, _ in r.content.iter_chunks():
+                    if self.status == DownloadStatus.canceled:
+                        return False
                     await f.write(data)
-                    if progress_bar is not None: progress_bar.update(len(data))
-            self.status = DownloadStatus.finished
+                    if self._progress_bar is not None: self._progress_bar.update(len(data))
     
-    async def download(self, block=True, progress_bar=True):
+    async def start(self, block=True, progress_bar=True):
         if not block:
-            return asyncio.create_task(self.download(progress_bar))
+            return asyncio.create_task(self.start(progress_bar))
 
         if not self._head_req:
             await self._do_head_req()
-        self.status = DownloadStatus.running
-        open(self.path, 'w').close()
+        
+        if not (await aios.path.isfile(self.path)):
+            open(self.path, 'wb').close()
         file_size = await self.get_size()
 
-        progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True) if progress_bar else None
-
-        if await self.is_pausable():
-            await self._multi_download(progress_bar)
+        if progress_bar:
+            self._progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True) if self._progress_bar is None else self._progress_bar
         else:
-            await self._single_download(progress_bar)
+            self._progress_bar = None
+
+        self.status = DownloadStatus.running
+        if await self.is_pausable():
+            await self._multi_download()
+        else:
+            await self._single_download()
+        if self.status == DownloadStatus.running:
+            self.status = DownloadStatus.finished
+            await self._clean_up()
+    
+    async def pause(self):
+        if not (await self.is_pausable()):
+            return False
+        match self.status:
+            case DownloadStatus.init | DownloadStatus.ready:
+                # not yet started
+                return True
+            case DownloadStatus.paused:
+                # already paused
+                return True
+            case DownloadStatus.error:
+                # encountered error while downloading -> no pause
+                return False
+            case DownloadStatus.finished | DownloadStatus.canceled:
+                # already finished
+                return False
+            case DownloadStatus.running:
+                # occupy the semaphore so no other task can download
+                self.status = DownloadStatus.paused
+            case _:
+                # shouldn't reach here
+                return False
+    
+    async def cancel(self):
+        self.status = DownloadStatus.canceled
+    
+    async def _clean_up(self):
+        if await aios.path.isfile(self.path + '.pydl'):
+            await aios.remove(self.path + '.pydl')
 
 
 async def main():
     url = 'https://dl3.soft98.ir/win/AAct.4.3.1.rar?1739730472'
     # url = 'https://github.com/Amir-Hossein-ID/Advent-of-Code/archive/refs/heads/master.zip'
     # url = 'https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-s390x.sh'
-    d = Download(url, 's.rar', n_connections=2)
-    download = await d.download(block=False)
-    await download
+    d = Download(url, 's.rar', n_connections=1)
+    download = await d.start(block=False)
+    while d.status != DownloadStatus.running:
+        await asyncio.sleep(0.1)
+    await asyncio.sleep(1)
+    await d.pause()
+    await asyncio.sleep(8)
+    await d.start()
+        
+    # await download
 
 if __name__ == '__main__':
     asyncio.run(main())
