@@ -81,7 +81,10 @@ class Download:
                         if self._progress_bar is not None:
                             self._progress_bar.update(len(data))
                             self._progress_bar.refresh()
-                        if self.status == DownloadStatus.canceled or self.status == DownloadStatus.paused:
+                        if self.status == DownloadStatus.canceled:
+                            r.close()
+                            return -1
+                        if self.status == DownloadStatus.paused:
                             await self._update_parts((part[0], await f.tell()))
                             r.close()
                             return -1
@@ -146,6 +149,8 @@ class Download:
         if self.status == DownloadStatus.running:
             self.status = DownloadStatus.finished
             await self._clean_up()
+        elif self.status == DownloadStatus.canceled:
+            await self._clean_up()
     
     async def _single_download(self):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
@@ -161,9 +166,12 @@ class Download:
         if self.status == DownloadStatus.running:
             self.status = DownloadStatus.finished
             await self._clean_up()
+        elif self.status == DownloadStatus.canceled:
+            await self._clean_up()
     
     async def start(self, block=True, progress_bar=True):
-        if self.status == DownloadStatus.finished or self.status == DownloadStatus.running:
+        if self.status == DownloadStatus.finished or self.status == DownloadStatus.running \
+            or self.status == DownloadStatus.canceled:
             return
 
         if not self.path:
@@ -220,10 +228,25 @@ class Download:
                 return False
     
     async def cancel(self):
-        self.status = DownloadStatus.canceled
+        match self.status:
+            case DownloadStatus.init | DownloadStatus.ready | DownloadStatus.paused \
+                | DownloadStatus.canceled | DownloadStatus.running:
+                self.status = DownloadStatus.canceled
+                return True
+            case DownloadStatus.error:
+                return False
+            case DownloadStatus.finished:
+                return False
+            case _:
+                # shouldn't reach here
+                return False
     
     async def _clean_up(self):
-        await aios.replace(self.dl_path, self.path)
+        if self.status == DownloadStatus.finished:
+            await aios.replace(self.dl_path, self.path)
+        else:
+            if await aios.path.isfile(self.dl_path):
+                await aios.remove(self.dl_path)
         if await aios.path.isfile(self.dlpy_path):
             await aios.remove(self.dlpy_path)
 
