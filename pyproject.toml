@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "downly"
+version = "0.1.0"
+description = "Yet another download manager in python."
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+]
+keywords = ["download", "url", "fast", "download manager"]
+dependencies = [
+    "aiohttp >= 3.11.0",
+    "aiofiles >= 24.1.0",
+    "tqdm >= 4.67.0"
+]
+
+requires-python = ">=3.9"
+
+[project.urls]
+Homepage = "https://github.com/Amir-Hossein-ID/Downly"

@@ -31,13 +31,13 @@ class DownloadStatus(enum.IntEnum):
     error = -1
 
 
-class Download:
+class Downloader:
     def __init__(self, url, path=None, *, chunk_size = 1024*1024*1, n_connections=8):
         self.session: aiohttp.ClientSession = None
         self.url = url
         self.path = path
-        self.dlpy_path = path + '.dlpy' if path else None
-        self.dl_path = path + '.dlpy_partial' if path else None
+        self.downly_path = path + '.downly' if path else None
+        self.dl_path = path + '.downly_partial' if path else None
         self.chunk_size = chunk_size
         self.n_connections = n_connections
         self.status = DownloadStatus.init
@@ -104,25 +104,25 @@ class Download:
                     break
         
         try:
-            async with aiofiles.open(self.dlpy_path, 'wb') as f:
+            async with aiofiles.open(self.downly_path, 'wb') as f:
                 await f.write(pickle.dumps(self._parts))
         except asyncio.CancelledError:
             # workaround for task cancellation (e.g Keyboard Interrupt) to avoid ending up with an empty file
             # the above approach gets cancelled again and again before writing the file, so I used a sync version
-            with open(self.dlpy_path, 'wb') as f:
+            with open(self.downly_path, 'wb') as f:
                 f.write(pickle.dumps(self._parts))
     
     async def _remaining_parts(self):
         size = await self.get_size()
-        if await aios.path.isfile(self.dlpy_path):
-            async with aiofiles.open(self.dlpy_path, 'rb') as f:
+        if await aios.path.isfile(self.downly_path):
+            async with aiofiles.open(self.downly_path, 'rb') as f:
                 data = pickle.loads(await f.read())
                 return data
 
         data = [(where, where + self.chunk_size) for where in range(0, await self.get_size(), self.chunk_size)]
         data[-1] = (data[-1][0], size)
 
-        async with aiofiles.open(self.dlpy_path, 'wb') as f:
+        async with aiofiles.open(self.downly_path, 'wb') as f:
             await f.write(pickle.dumps(data))
         return data
     
@@ -178,8 +178,8 @@ class Download:
             self.path = os.path.basename(urlparse(unquote(str(self.url))).path)
             if not self.path:
                 raise ValueError("Couldn't get filename from url")
-            self.dl_path = self.path + '.dlpy_partial'
-            self.dlpy_path = self.path + '.dlpy'
+            self.dl_path = self.path + '.downly_partial'
+            self.downly_path = self.path + '.downly'
 
         if not self._head_req:
             await self._do_head_req()
@@ -247,16 +247,5 @@ class Download:
         else:
             if await aios.path.isfile(self.dl_path):
                 await aios.remove(self.dl_path)
-        if await aios.path.isfile(self.dlpy_path):
-            await aios.remove(self.dlpy_path)
-
-
-async def main():
-    url = 'https://dl3.soft98.ir/win/AAct.4.3.1.rar?1739730472'
-    # url = 'https://github.com/Amir-Hossein-ID/Advent-of-Code/archive/refs/heads/master.zip'
-    # url = 'https://repo.anaconda.com/archive/Anaconda3-2022.10-Linux-s390x.sh'
-    d = Download(url)
-    await d.start()
-
-if __name__ == '__main__':
-    asyncio.run(main())
+        if await aios.path.isfile(self.downly_path):
+            await aios.remove(self.downly_path)
