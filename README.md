@@ -2,6 +2,8 @@
 
 *A fast and efficient Python download manager.*
 
+(For downloading torrents visit [torrentix](https://github.com/Amir-Hossein-ID/torrentix))
+
 ## 🚀 Features
 - **Synchronous downloads** for faster performance
 - **Resume support** for interrupted downloads (even if the process is killed!)
@@ -75,7 +77,6 @@ async def main():
 
 
 ## 🔥 Roadmap
-- [ ] Torrent Support
 - [ ] Proxies Support
 - [ ] More control over User agents, number of retries, ...
 
