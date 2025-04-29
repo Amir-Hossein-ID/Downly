@@ -1,3 +1,6 @@
 *.dlpy
 *.dlpy_partial
 dist
+build
+*.egg-info
+__pycache__

@@ -4,7 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "downly"
-version = "0.1.0"
 description = "Yet another download manager in python."
 readme = "README.md"
 classifiers = [
@@ -19,6 +18,13 @@ dependencies = [
 ]
 
 requires-python = ">=3.9"
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/Amir-Hossein-ID/Downly"
+
+[tool.setuptools.dynamic]
+version = {attr = "downly.__version__"}
+
+[project.scripts]
+downly = "downly:main"

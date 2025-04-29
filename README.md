@@ -12,7 +12,14 @@
 pip install downly
 ```
 
-## 📖 Usage
+## 💻 Command Line Usage
+
+```sh
+downly https://example.com/file.zip [options]
+```
+
+## 🐍 Direct Usage
+
 ```python
 import asyncio
 from downly import Downloader
