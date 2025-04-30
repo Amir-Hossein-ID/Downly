@@ -189,7 +189,15 @@ class Downloader:
         file_size = await self.get_size()
 
         if progress_bar:
-            self._progress_bar = tqdm(total=file_size, ncols=70, unit="B", unit_scale=True) if self._progress_bar is None else self._progress_bar
+            if self._progress_bar == None:
+                self._progress_bar = tqdm(total=file_size, desc=self.path,
+                                          unit="B",
+                                          colour="#AAFF00", unit_scale=True,
+                                          #TODO: position adjustments
+                                          leave=True,
+                                          #TODO: replace more than 50 characters with ...
+                                          bar_format='{desc:<50}: {percentage:4.1f}%|{bar:25}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, ' '{rate_fmt}{postfix}]'
+                                        )
         else:
             self._progress_bar = None
 
@@ -244,6 +252,8 @@ class Downloader:
     
     async def _clean_up(self):
         if self.status == DownloadStatus.finished:
+            #TODO: why n is a little larger than total?
+            self._progress_bar.bar_format='{desc:50} {n_fmt} [{elapsed}, ' '{rate_fmt}{postfix}]'
             await aios.replace(self.dl_path, self.path)
         else:
             if await aios.path.isfile(self.dl_path):
