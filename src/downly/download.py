@@ -1,7 +1,9 @@
 import aiohttp
 import aiofiles
 import aiofiles.os as aios
-from tqdm.asyncio import tqdm
+from rich.progress import Progress, TextColumn, BarColumn, \
+    TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, \
+    DownloadColumn, TransferSpeedColumn, TaskProgressColumn
 
 import asyncio
 import enum
@@ -21,6 +23,23 @@ def human_readable_size(size_in_bytes):
 
 user_agent = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0'}
 
+_progress = None
+
+def _get_progress():
+    global _progress
+    if _progress is None:
+        _progress = Progress(
+            TextColumn("[progress.description]{task.description}"),
+            TaskProgressColumn(),
+            BarColumn(),
+            DownloadColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+            TransferSpeedColumn()
+        )
+        _progress.start()
+    return _progress
+
 class DownloadStatus(enum.IntEnum):
     init = 0
     ready = 1
@@ -29,7 +48,6 @@ class DownloadStatus(enum.IntEnum):
     finished = 4
     canceled = 5
     error = -1
-
 
 class Downloader:
     def __init__(self, url, path=None, *, chunk_size = 1024*1024*1, n_connections=8):
@@ -43,7 +61,7 @@ class Downloader:
         self.status = DownloadStatus.init
         self._head_req = None
         self._semaphore = asyncio.Semaphore(self.n_connections)
-        self._progress_bar = None
+        self._progress_bar_id = None
     
     async def _do_head_req(self):
         if self.session != None and not self.session.closed:
@@ -62,6 +80,10 @@ class Downloader:
             return int(self._head_req.headers.get('Content-Length'))
         return None
     
+    def _update_progress_bar(self, advance=None, completed=None):
+        if self._progress_bar_id is not None:
+            _get_progress().update(self._progress_bar_id, advance=advance, completed=completed)
+    
     async def is_pausable(self):
         if not self._head_req:
             await self._do_head_req()
@@ -78,9 +100,7 @@ class Downloader:
                 try:
                     async for data, _ in r.content.iter_chunks():
                         await f.write(data)
-                        if self._progress_bar is not None:
-                            self._progress_bar.update(len(data))
-                            self._progress_bar.refresh()
+                        self._update_progress_bar(len(data))
                         if self.status == DownloadStatus.canceled:
                             r.close()
                             return -1
@@ -129,11 +149,8 @@ class Downloader:
     async def _multi_download(self):
         async with aiohttp.ClientSession(headers=user_agent) as self.session:
             self._parts = await self._remaining_parts()
-            if self._progress_bar is not None:
-                new_value = await self.get_size() - sum(i[1]-i[0] for i in self._parts)
-                self._progress_bar.n = new_value
-                self._progress_bar.last_print_n = new_value
-                self._progress_bar.refresh()
+            new_value = await self.get_size() - sum(i[1]-i[0] for i in self._parts)
+            self._update_progress_bar(completed=new_value)                
 
             tasks = [
                 self._download_part(part)
@@ -160,9 +177,7 @@ class Downloader:
                     if self.status == DownloadStatus.canceled:
                         return False
                     await f.write(data)
-                    if self._progress_bar is not None:
-                        self._progress_bar.update(len(data))
-                        self._progress_bar.refresh()
+                    self._update_progress_bar(advance=len(data))
         if self.status == DownloadStatus.running:
             self.status = DownloadStatus.finished
             await self._clean_up()
@@ -189,17 +204,10 @@ class Downloader:
         file_size = await self.get_size()
 
         if progress_bar:
-            if self._progress_bar == None:
-                self._progress_bar = tqdm(total=file_size, desc=self.path,
-                                          unit="B",
-                                          colour="#AAFF00", unit_scale=True,
-                                          #TODO: position adjustments
-                                          leave=True,
-                                          #TODO: replace more than 50 characters with ...
-                                          bar_format='{desc:<50}: {percentage:4.1f}%|{bar:25}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, ' '{rate_fmt}{postfix}]'
-                                        )
+            if self._progress_bar_id == None:
+                self._progress_bar_id = _get_progress().add_task(description=self.path, total=file_size)
         else:
-            self._progress_bar = None
+            self._progress_bar_id = None
 
         self.status = DownloadStatus.running
 
@@ -251,9 +259,8 @@ class Downloader:
                 return False
     
     async def _clean_up(self):
+        _get_progress().refresh()
         if self.status == DownloadStatus.finished:
-            #TODO: why n is a little larger than total?
-            self._progress_bar.bar_format='{desc:50} {n_fmt} [{elapsed}, ' '{rate_fmt}{postfix}]'
             await aios.replace(self.dl_path, self.path)
         else:
             if await aios.path.isfile(self.dl_path):
