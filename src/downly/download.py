@@ -223,6 +223,7 @@ class Downloader:
                 return False
             case DownloadStatus.running:
                 self.status = DownloadStatus.paused
+                return True
             case _:
                 # shouldn't reach here
                 return False
