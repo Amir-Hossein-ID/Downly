@@ -7,6 +7,7 @@
 ## 🚀 Features
 - **Synchronous downloads** for faster performance
 - **Resume support** for interrupted downloads (even if the process is killed!)
+- **Multiple downloads** with a single instance
 - **Progress tracking** with a clean CLI output
 
 ## 📦 Installation
@@ -20,15 +21,18 @@ pip install downly
 downly https://example.com/file.zip [options]
 ```
 
+Use `downly --help` to see options.
+
 ## 🐍 Direct Usage
 
 ```python
 import asyncio
-from downly import Downloader
+from downly import Downly
 
 async def main():
-    d = Downloader("https://example.com/file.zip")
-    await d.start()
+    downly = Downly()
+    download = downly.new_download("https://example.com/file.zip")
+    await download.start()
 
 if __name__ =='__main__':
     asyncio.run(main())
@@ -37,49 +41,64 @@ if __name__ =='__main__':
 ### Non-Blocking Downloads
 ```python
 async def main():
-    d = Downloader("https://example.com/file.zip")
-    download = await d.start(block=False)
+    downly = Downly()
+    download = downly.new_download("https://example.com/file.zip")
+    await download.start(block=False)
 
     await asyncio.sleep(3) # do other stuff while downloading
 
-    await download # wait for download to finish
+    await downly.await_downloads() # wait for download to finish
 ```
 
 ### Pause and resume Downloads
 ```python
 async def main():
-    d = Downloader("https://example.com/file.zip")
-    await d.start(block=False)
-    await d.pause()
+    downly = Downly()
+    download = downly.new_download("https://example.com/file.zip")
+    await download.start(block=False)
+
+    await download.pause()
 
     # do other stuff
 
-    await d.start() # resume download
+    await download.start() # resume download
+```
+
+### Multiple Downloads
+```python
+async def main():
+    downly = Downly()
+    downly.new_download("https://example.com/file.zip")
+    downly.new_download("https://example.com/file2.zip")
+    downly.new_download("https://example.com/file3.zip")
+    await downly.await_downloads()
 ```
 
 ### Automatically Saves download state
-- Start download: `await d.start()`
+- Start download: `await download.start()`
 - Something Happens and the process terminates:
 ```sh
-  7%|██                           | 21.2M/296M [00:12<02:36, 1.75MB/s]
+file.zip  29% ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.4/15.1 MB 0:00:03 0:00:07 1.6 MB/s
 Ctrl^C (Keyboard Interrupt)
 ```
 - Start Download Again: `await d.start()`
 - Download starts from where it was stopped:
 ```sh
-  7%|██                           | 21.2M/296M [00:12<02:36, 1.75MB/s]
+file.zip  29% ━━━━━━━━━━━╸━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.4/15.1 MB 0:00:03 0:00:07 1.6 MB/s
 ```
 
 ## 🛠 Configuration
-You can customize Downly’s settings by passing options:
+You can customize download's settings by passing options:
 ```python
 async def main():
-    d = Downloader(
+    downly = Downly()
+    download = downly.new_download(
         "https://example.com/file.zip",
         path='myfolder/myfilename.zip',
         chunk_size=1024*1024*2, # 2MB
-        n_connections=16) # 16 synchronous connections 
-    await d.start()
+        n_connections=16 # 16 synchronous connections 
+    )
+    await download.start()
 ```
 
 

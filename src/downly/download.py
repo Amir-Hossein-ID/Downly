@@ -1,9 +1,7 @@
 import aiohttp
 import aiofiles
 import aiofiles.os as aios
-from rich.progress import Progress, TextColumn, BarColumn, \
-    TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, \
-    DownloadColumn, TransferSpeedColumn, TaskProgressColumn
+from rich.progress import Progress
 
 import asyncio
 import enum
@@ -12,33 +10,7 @@ import pickle
 from urllib.parse import urlparse, unquote
 
 
-def human_readable_size(size_in_bytes):
-    units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-    unit_index = 0
-    while size_in_bytes >= 1024 and unit_index < len(units) - 1:
-        size_in_bytes /= 1024
-        unit_index += 1
-    
-    return f"{size_in_bytes:.2f} {units[unit_index]}"
-
 user_agent = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0'}
-
-_progress = None
-
-def _get_progress():
-    global _progress
-    if _progress is None:
-        _progress = Progress(
-            TextColumn("[progress.description]{task.description}"),
-            TaskProgressColumn(),
-            BarColumn(),
-            DownloadColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-            TransferSpeedColumn()
-        )
-        _progress.start()
-    return _progress
 
 class DownloadStatus(enum.IntEnum):
     init = 0
@@ -50,7 +22,7 @@ class DownloadStatus(enum.IntEnum):
     error = -1
 
 class Downloader:
-    def __init__(self, url, path=None, *, chunk_size = 1024*1024*1, n_connections=8):
+    def __init__(self, url, path=None, chunk_size=1024*1024*1, n_connections=8, _progress:Progress=None):
         self.session: aiohttp.ClientSession = None
         self.url = url
         self.path = path
@@ -62,6 +34,8 @@ class Downloader:
         self._head_req = None
         self._semaphore = asyncio.Semaphore(self.n_connections)
         self._progress_bar_id = None
+        self._progress = _progress
+        self.task = None
     
     async def _do_head_req(self):
         if self.session != None and not self.session.closed:
@@ -82,7 +56,7 @@ class Downloader:
     
     def _update_progress_bar(self, advance=None, completed=None):
         if self._progress_bar_id is not None:
-            _get_progress().update(self._progress_bar_id, advance=advance, completed=completed)
+            self._progress.update(self._progress_bar_id, advance=advance, completed=completed)
     
     async def is_pausable(self):
         if not self._head_req:
@@ -205,21 +179,22 @@ class Downloader:
 
         if progress_bar:
             if self._progress_bar_id == None:
-                self._progress_bar_id = _get_progress().add_task(description=self.path, total=file_size)
+                self._progress_bar_id = self._progress.add_task(description=self.path, total=file_size)
+                self._progress.start()
         else:
             self._progress_bar_id = None
 
         self.status = DownloadStatus.running
 
         if await self.is_pausable():
-            task = asyncio.create_task(self._multi_download())
+            self.task = asyncio.create_task(self._multi_download())
         else:
-            task = asyncio.create_task(self._single_download())
+            self.task = asyncio.create_task(self._single_download())
         
         if not block:
-            return task
+            return self.task
         else:
-            await task
+            await self.task
     
     async def pause(self):
         if not (await self.is_pausable()):
@@ -259,7 +234,7 @@ class Downloader:
                 return False
     
     async def _clean_up(self):
-        _get_progress().refresh()
+        self._progress.refresh()
         if self.status == DownloadStatus.finished:
             await aios.replace(self.dl_path, self.path)
         else:

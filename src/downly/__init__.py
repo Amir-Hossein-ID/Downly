@@ -1,24 +1,22 @@
-from .download import Downloader, DownloadStatus
+from .downly import Downly
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 
 __all__ = [
-    "Downloader",
-    "DownloadStatus"
+    "Downly",
 ]
 
 async def main_download(args):
-    downloads = []
+    downly = Downly()
+
     for url in args.url:
-        downloader = Downloader(
+        downly.new_download(
             url,
             chunk_size=args.chunk_size,
             n_connections=args.number_of_connections
-            )
-        download = await downloader.start(block=False)
-        downloads.append(download)
-    for download in downloads:
-        await download
+        )
+
+    await downly.await_downloads()
 
 def main():
     import argparse
